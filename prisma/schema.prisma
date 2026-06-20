@@ -1,0 +1,352 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum Role {
+  PATIENT
+  DOCTOR
+  ADMIN
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum AppointmentStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+}
+
+enum RecordType {
+  LAB_RESULT
+  PRESCRIPTION
+  IMAGING
+  DISCHARGE_SUMMARY
+  VACCINATION
+  OTHER
+}
+
+enum ReminderFrequency {
+  ONCE
+  DAILY
+  TWICE_DAILY
+  THREE_TIMES_DAILY
+  WEEKLY
+  CUSTOM
+}
+
+enum ReminderStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  EXPIRED
+}
+
+enum DoseStatus {
+  TAKEN
+  MISSED
+  SKIPPED
+  SNOOZED
+}
+
+enum NotificationChannel {
+  EMAIL
+  BROWSER
+}
+
+// ─── Core Models ─────────────────────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  emailVerified DateTime?
+  name          String?
+  image         String?
+  password      String?
+  role          Role      @default(PATIENT)
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts            Account[]
+  sessions            Session[]
+  patient             Patient?
+  doctor              Doctor?
+  admin               Admin?
+  passwordResetTokens PasswordResetToken[]
+
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expires   DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("password_reset_tokens")
+}
+
+// ─── Patient ─────────────────────────────────────────────────────────────────
+
+model Patient {
+  id                    String    @id @default(cuid())
+  userId                String    @unique
+  dateOfBirth           DateTime?
+  gender                Gender?
+  phone                 String?
+  address               String?
+  bloodGroup            String?
+  allergies             String[]
+  emergencyContactName  String?
+  emergencyContactPhone String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  user         User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  appointments Appointment[]
+  records      MedicalRecord[]
+  reminders    MedicineReminder[]
+  doseLogs     DoseLog[]
+
+  @@map("patients")
+}
+
+// ─── Doctor ──────────────────────────────────────────────────────────────────
+
+model Doctor {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  specialization  String
+  licenseNumber   String   @unique
+  qualification   String?
+  clinicName      String?
+  clinicAddress   String?
+  phone           String?
+  bio             String?
+  yearsExperience Int?
+  consultationFee Decimal? @db.Decimal(10, 2)
+  availableDays   String[]
+  availableFrom   String?
+  availableTo     String?
+  slotDuration    Int      @default(30)
+  isVerified      Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  appointments Appointment[]
+  records      MedicalRecord[]
+  slots        DoctorSlot[]
+
+  @@map("doctors")
+}
+
+// ─── Admin ───────────────────────────────────────────────────────────────────
+
+model Admin {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("admins")
+}
+
+// ─── Doctor Slot ─────────────────────────────────────────────────────────────
+
+model DoctorSlot {
+  id        String   @id @default(cuid())
+  doctorId  String
+  date      DateTime @db.Date
+  startTime String
+  endTime   String
+  isBooked  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  doctor      Doctor       @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  appointment Appointment?
+
+  @@unique([doctorId, date, startTime])
+  @@map("doctor_slots")
+}
+
+// ─── Appointment ─────────────────────────────────────────────────────────────
+
+model Appointment {
+  id          String            @id @default(cuid())
+  patientId   String
+  doctorId    String
+  slotId      String?           @unique
+  scheduledAt DateTime
+  duration    Int               @default(30)
+  status      AppointmentStatus @default(PENDING)
+  reason      String?
+  notes       String?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  patient Patient     @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  doctor  Doctor      @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  slot    DoctorSlot? @relation(fields: [slotId], references: [id], onDelete: SetNull)
+
+  @@map("appointments")
+}
+
+// ─── Medical Records ─────────────────────────────────────────────────────────
+
+model MedicalRecord {
+  id          String     @id @default(cuid())
+  patientId   String
+  doctorId    String?
+  type        RecordType
+  title       String
+  description String?
+  fileUrl     String?
+  fileKey     String?
+  fileName    String?
+  fileSize    Int?
+  mimeType    String?
+  tags        String[]
+  recordedAt  DateTime   @default(now())
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  patient Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  doctor  Doctor?  @relation(fields: [doctorId], references: [id], onDelete: SetNull)
+
+  @@map("medical_records")
+}
+
+// ─── Medicine Reminder ───────────────────────────────────────────────────────
+
+model MedicineReminder {
+  id           String            @id @default(cuid())
+  patientId    String
+  medicineName String
+  dosage       String
+  frequency    ReminderFrequency
+  times        String[]
+  startDate    DateTime
+  endDate      DateTime?
+  instructions String?
+  color        String?
+  status       ReminderStatus    @default(ACTIVE)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  patient  Patient   @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  doseLogs DoseLog[]
+
+  @@map("medicine_reminders")
+}
+
+// ─── Dose Log ────────────────────────────────────────────────────────────────
+
+model DoseLog {
+  id          String     @id @default(cuid())
+  reminderId  String
+  patientId   String
+  scheduledAt DateTime
+  takenAt     DateTime?
+  snoozedUntil DateTime?
+  status      DoseStatus
+  notes       String?
+  createdAt   DateTime   @default(now())
+
+  reminder MedicineReminder @relation(fields: [reminderId], references: [id], onDelete: Cascade)
+  patient  Patient          @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@map("dose_logs")
+}
+
+// ─── Notification ────────────────────────────────────────────────────────────
+
+model Notification {
+  id        String              @id @default(cuid())
+  userId    String
+  title     String
+  body      String
+  channel   NotificationChannel
+  isRead    Boolean             @default(false)
+  sentAt    DateTime?
+  createdAt DateTime            @default(now())
+
+  @@map("notifications")
+}
+
+// ─── Audit Log ───────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  action     String
+  entity     String
+  entityId   String?
+  oldValues  Json?
+  newValues  Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+  @@index([entity, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
